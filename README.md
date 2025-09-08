@@ -199,18 +199,18 @@ int predictNextToken(NgramIndex *idx, int *prefix, int plen);
     vocab.c
     ngram.c
     pattern.c
-    lm_model.c
+    lmModel.c
 /include
     tokenizer.h
     vocab.h
     ngram.h
     pattern.h
-    lm_model.h
+    lmModel.h
 /data
     corpus.txt
 /bin
-    build_vocab
-    build_ngrams
+    buildvocab
+    buildngrams
     predict
 Makefile
 README.md
