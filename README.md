@@ -1,4 +1,4 @@
-# **Stateless Language Model Documentation (C Implementation)**
+# **Cevia: Stateless Backward Reasoning Language Model (C Implementation)**
 
 ## **1. Overview**
 
@@ -22,8 +22,8 @@ The model supports:
 1. Clone the repository:
 
 ```bash
-git clone <repository-url>
-cd stateless-language-model
+git clone https://github.com/gtkrshnaaa/cevia.git
+cd cevia
 ```
 
 2. Compile with GCC (example):
