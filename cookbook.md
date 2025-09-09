@@ -1,5 +1,5 @@
 
-# **Stateless Language Model Cookbook (C Implementation)**
+# **Stateless Language Model (Cevia) Cookbook (C Implementation)**
 
 ## **Introduction**
 
