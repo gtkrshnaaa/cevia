@@ -483,11 +483,38 @@ static uint32_t sampleToken(uint32_t* tokens, float* scores, int k, float temper
     return tokens[0];  // Fallback
 }
 
-// Helper: Check if should stop generation
-static int shouldStop(const char* generated, int tokenCount, const char* lastToken) {
+// Helper: Score response quality
+static float scoreResponse(const char* response, int tokenCount) {
+    float score = 0.0f;
+    
+    // Length scoring (prefer 5-15 tokens)
+    if (tokenCount < 3) {
+        score -= 10.0f;  // Too short
+    } else if (tokenCount > 20) {
+        score -= (tokenCount - 20) * 0.5f;  // Too long penalty
+    } else if (tokenCount >= 5 && tokenCount <= 15) {
+        score += 5.0f;  // Ideal length
+    }
+    
+    // Check for repetition
+    Sentence s = initSentence();
+    tokenizeLine(response, &s);
+    for (int i = 0; i < s.length - 1; i++) {
+        for (int j = i + 1; j < s.length; j++) {
+            if (strcmp(s.sequence[i].text, s.sequence[j].text) == 0) {
+                score -= 2.0f;  // Repetition penalty
+            }
+        }
+    }
+    
+    return score;
+}
+
+// Helper: Advanced stopping conditions
+static int shouldStop(const char* generated, int tokenCount, const char* lastToken, float lastScore) {
     if (tokenCount <= 0) return 0;
     
-    // Check for sentence endings
+    // Check for sentence endings (punctuation)
     if (lastToken) {
         size_t len = strlen(lastToken);
         if (len > 0) {
@@ -496,30 +523,52 @@ static int shouldStop(const char* generated, int tokenCount, const char* lastTok
         }
     }
     
-    // Check for common ending words (after some tokens)
+    // Check for natural ending words (only after minimum length)
     if (tokenCount >= 5) {
         if (lastToken && (
             strcmp(lastToken, "ya") == 0 ||
             strcmp(lastToken, "oke") == 0 ||
             strcmp(lastToken, "siap") == 0 ||
             strcmp(lastToken, "pasti") == 0 ||
-            strcmp(lastToken, "deh") == 0
+            strcmp(lastToken, "deh") == 0 ||
+            strcmp(lastToken, "dong") == 0 ||
+            strcmp(lastToken, "kok") == 0
         )) {
             return 1;
         }
     }
     
+    // Stop if confidence too low
+    if (lastScore < 0.03f && tokenCount >= 3) {
+        return 1;
+    }
+    
+    // Force stop if too long
+    if (tokenCount >= 25) {
+        return 1;
+    }
+    
     return 0;
 }
 
-// Helper: Detect repetition
+// Helper: Detect repetition (improved)
 static int hasRepetition(uint32_t* tokenHistory, int count) {
-    if (count < 3) return 0;
+    if (count < 2) return 0;
     
     // Check if last 3 tokens are the same
-    if (tokenHistory[count-1] == tokenHistory[count-2] &&
-        tokenHistory[count-2] == tokenHistory[count-3]) {
-        return 1;
+    if (count >= 3) {
+        if (tokenHistory[count-1] == tokenHistory[count-2] &&
+            tokenHistory[count-2] == tokenHistory[count-3]) {
+            return 1;
+        }
+    }
+    
+    // Check for 2-token loops (e.g., "yuk masuk yuk masuk")
+    if (count >= 4) {
+        if (tokenHistory[count-1] == tokenHistory[count-3] &&
+            tokenHistory[count-2] == tokenHistory[count-4]) {
+            return 1;
+        }
     }
     
     return 0;
@@ -546,9 +595,9 @@ void generateResponse(const LMModel* model, const char* input,
         return;
     }
     
-    // Build initial context from last few tokens (up to 3)
-    char context[256] = "";
-    int contextStart = (s.length > 3) ? (s.length - 3) : 0;
+    // Build initial context from last tokens (up to 7 for balance)
+    char context[512] = "";
+    int contextStart = (s.length > 7) ? (s.length - 7) : 0;
     for (int i = contextStart; i < s.length; i++) {
         if (i > contextStart) strcat(context, " ");
         strcat(context, s.sequence[i].text);
@@ -582,20 +631,23 @@ void generateResponse(const LMModel* model, const char* input,
         }
         strcat(generated, tokenText);
         
-        // Update context: keep last 3 tokens
-        char newContext[256];
+        // Update context: keep last 7 tokens for balance
+        char newContext[512];
         Sentence ctxSent = initSentence();
         tokenizeLine(context, &ctxSent);
         
         // Add new token
-        if (ctxSent.length < 3) {
+        if (ctxSent.length < 7) {
             snprintf(newContext, sizeof(newContext), "%s %s", context, tokenText);
         } else {
-            // Keep last 2 tokens + new token
-            snprintf(newContext, sizeof(newContext), "%s %s %s",
-                    ctxSent.sequence[ctxSent.length-2].text,
-                    ctxSent.sequence[ctxSent.length-1].text,
-                    tokenText);
+            // Keep last 6 tokens + new token
+            newContext[0] = '\0';
+            for (int j = ctxSent.length - 6; j < ctxSent.length; j++) {
+                if (strlen(newContext) > 0) strcat(newContext, " ");
+                strcat(newContext, ctxSent.sequence[j].text);
+            }
+            strcat(newContext, " ");
+            strcat(newContext, tokenText);
         }
         snprintf(context, sizeof(context), "%s", newContext);
         
@@ -603,8 +655,8 @@ void generateResponse(const LMModel* model, const char* input,
         tokenHistory[tokenCount] = nextToken;
         tokenCount++;
         
-        // Check stopping conditions
-        if (shouldStop(generated, tokenCount, tokenText)) break;
+        // Check stopping conditions with score awareness
+        if (shouldStop(generated, tokenCount, tokenText, scores[0])) break;
         if (hasRepetition(tokenHistory, tokenCount)) break;
     }
     
