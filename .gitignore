@@ -1,8 +1,8 @@
 # Build artifacts
 build/
 
-# Model data files (keep source data)
-data/bin/*.o
+# Model binary files
+data/bin/
 
 # IDE and editor files
 .vscode/
