@@ -123,27 +123,44 @@ void buildVocabularyFromFile(Vocabulary* vocab, const char* filename) {
     fclose(file);
 }
 
-// Save vocabulary to file
+// Save vocabulary as C source file for embedding
 void saveVocabulary(const Vocabulary* vocab, const char* filename) {
     if (!vocab || !filename) return;
     
-    FILE* file = fopen(filename, "wb");
+    // Change extension to .c
+    char cFilename[512];
+    snprintf(cFilename, sizeof(cFilename), "src/embedded_vocab.c");
+    
+    FILE* file = fopen(cFilename, "w");
     if (!file) {
-        perror("Failed to create file");
+        perror("Failed to create embedded vocab file");
         return;
     }
     
-    // Write number of tokens
-    fwrite(&vocab->size, sizeof(uint32_t), 1, file);
+    // Write C source header
+    fprintf(file, "// Auto-generated embedded vocabulary\n");
+    fprintf(file, "#include <stdint.h>\n\n");
+    fprintf(file, "const uint32_t EMBEDDED_VOCAB_SIZE = %u;\n\n", vocab->size);
     
-    // Write each token
+    // Write token strings array
+    fprintf(file, "const char* EMBEDDED_VOCAB_TOKENS[] = {\n");
     for (uint32_t i = 0; i < vocab->size; i++) {
-        uint16_t len = (uint16_t)strlen(vocab->idToToken[i]);
-        fwrite(&len, sizeof(uint16_t), 1, file);
-        fwrite(vocab->idToToken[i], sizeof(char), len, file);
+        // Escape special characters
+        fprintf(file, "    \"");
+        const char* token = vocab->idToToken[i];
+        for (size_t j = 0; token[j] != '\0'; j++) {
+            if (token[j] == '\\') fprintf(file, "\\\\");
+            else if (token[j] == '"') fprintf(file, "\\\"");
+            else if (token[j] == '\n') fprintf(file, "\\n");
+            else if (token[j] == '\t') fprintf(file, "\\t");
+            else fprintf(file, "%c", token[j]);
+        }
+        fprintf(file, "\",\n");
     }
+    fprintf(file, "};\n");
     
     fclose(file);
+    printf("Generated embedded vocabulary: %s\n", cFilename);
 }
 
 // Load vocabulary from file
