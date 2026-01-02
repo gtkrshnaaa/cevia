@@ -23,4 +23,9 @@ void loadModel(LMModel* model, const char* basePath);
 void predictNextToken(const LMModel* model, const char* context, 
                      uint32_t* topTokens, float* scores, int k);
 
+// Auto-regressive text generation
+void generateResponse(const LMModel* model, const char* input,
+                     char* output, int maxTokens, float temperature);
+
 #endif // LmModelHeader
+

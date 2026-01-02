@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 
 // Maximum number of candidate tokens to consider
 #define MaxCandidates 100
@@ -441,3 +442,173 @@ void predictNextToken(const LMModel* model, const char* context,
         if (arr) free(arr);
     }
 }
+
+// Helper: Sample token from probability distribution with temperature
+static uint32_t sampleToken(uint32_t* tokens, float* scores, int k, float temperature) {
+    if (k <= 0) return 0;
+    
+    // Greedy sampling (temperature = 0)
+    if (temperature <= 0.01f) {
+        return tokens[0];
+    }
+    
+    // Temperature-scaled sampling
+    float adjusted[64];  // Max k=64
+    if (k > 64) k = 64;
+    
+    float sum = 0.0f;
+    for (int i = 0; i < k; i++) {
+        if (scores[i] <= 0.0f) break;
+        adjusted[i] = expf(logf(scores[i] + 1e-9f) / temperature);
+        sum += adjusted[i];
+    }
+    
+    if (sum <= 0.0f) return tokens[0];
+    
+    // Normalize
+    for (int i = 0; i < k; i++) {
+        adjusted[i] /= sum;
+    }
+    
+    // Sample from distribution
+    float r = (float)rand() / (float)RAND_MAX;
+    float cumulative = 0.0f;
+    for (int i = 0; i < k; i++) {
+        cumulative += adjusted[i];
+        if (r <= cumulative) {
+            return tokens[i];
+        }
+    }
+    
+    return tokens[0];  // Fallback
+}
+
+// Helper: Check if should stop generation
+static int shouldStop(const char* generated, int tokenCount, const char* lastToken) {
+    if (tokenCount <= 0) return 0;
+    
+    // Check for sentence endings
+    if (lastToken) {
+        size_t len = strlen(lastToken);
+        if (len > 0) {
+            char last = lastToken[len - 1];
+            if (last == '.' || last == '?' || last == '!') return 1;
+        }
+    }
+    
+    // Check for common ending words (after some tokens)
+    if (tokenCount >= 5) {
+        if (lastToken && (
+            strcmp(lastToken, "ya") == 0 ||
+            strcmp(lastToken, "oke") == 0 ||
+            strcmp(lastToken, "siap") == 0 ||
+            strcmp(lastToken, "pasti") == 0 ||
+            strcmp(lastToken, "deh") == 0
+        )) {
+            return 1;
+        }
+    }
+    
+    return 0;
+}
+
+// Helper: Detect repetition
+static int hasRepetition(uint32_t* tokenHistory, int count) {
+    if (count < 3) return 0;
+    
+    // Check if last 3 tokens are the same
+    if (tokenHistory[count-1] == tokenHistory[count-2] &&
+        tokenHistory[count-2] == tokenHistory[count-3]) {
+        return 1;
+    }
+    
+    return 0;
+}
+
+// Auto-regressive text generation
+void generateResponse(const LMModel* model, const char* input,
+                     char* output, int maxTokens, float temperature) {
+    if (!model || !input || !output) return;
+    
+    // Initialize random seed
+    static int seeded = 0;
+    if (!seeded) {
+        srand((unsigned int)time(NULL));
+        seeded = 1;
+    }
+    
+    // Tokenize input to get starting context
+    Sentence s = initSentence();
+    tokenizeLine(input, &s);
+    
+    if (s.length == 0) {
+        output[0] = '\0';
+        return;
+    }
+    
+    // Build initial context from last few tokens (up to 3)
+    char context[256] = "";
+    int contextStart = (s.length > 3) ? (s.length - 3) : 0;
+    for (int i = contextStart; i < s.length; i++) {
+        if (i > contextStart) strcat(context, " ");
+        strcat(context, s.sequence[i].text);
+    }
+    
+    // Generation buffer
+    char generated[2048] = "";
+    uint32_t tokenHistory[100];
+    int tokenCount = 0;
+    
+    // Generation loop
+    for (int i = 0; i < maxTokens && i < 100; i++) {
+        // Predict next token
+        uint32_t topTokens[10];
+        float scores[10];
+        predictNextToken(model, context, topTokens, scores, 10);
+        
+        // Check if we got valid predictions
+        if (scores[0] <= 0.0f) break;
+        
+        // Sample token based on temperature
+        uint32_t nextToken = sampleToken(topTokens, scores, 10, temperature);
+        
+        // Get token text
+        const char* tokenText = getTokenById(model->vocab, nextToken);
+        if (!tokenText || strlen(tokenText) == 0) break;
+        
+        // Append to generated text
+        if (strlen(generated) > 0) {
+            strcat(generated, " ");
+        }
+        strcat(generated, tokenText);
+        
+        // Update context: keep last 3 tokens
+        char newContext[256];
+        Sentence ctxSent = initSentence();
+        tokenizeLine(context, &ctxSent);
+        
+        // Add new token
+        if (ctxSent.length < 3) {
+            snprintf(newContext, sizeof(newContext), "%s %s", context, tokenText);
+        } else {
+            // Keep last 2 tokens + new token
+            snprintf(newContext, sizeof(newContext), "%s %s %s",
+                    ctxSent.sequence[ctxSent.length-2].text,
+                    ctxSent.sequence[ctxSent.length-1].text,
+                    tokenText);
+        }
+        snprintf(context, sizeof(context), "%s", newContext);
+        
+        // Store in history
+        tokenHistory[tokenCount] = nextToken;
+        tokenCount++;
+        
+        // Check stopping conditions
+        if (shouldStop(generated, tokenCount, tokenText)) break;
+        if (hasRepetition(tokenHistory, tokenCount)) break;
+    }
+    
+    // Copy to output
+    snprintf(output, 2048, "%s", generated);
+}
+

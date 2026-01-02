@@ -15,6 +15,8 @@ void printUsage(const char* programName) {
     printf("  run [--model-prefix P] [--top-k N]      Run interactive inference\n");
     printf("  predict <model_prefix> <context> [--top-k N]  Predict next token\n");
     printf("  eval <corpus.txt> [--model-prefix P] [--top-k N]  Evaluate top-k hit rate\n");
+    printf("  chat [--model-prefix P] [--temp T] [--max-tokens N]  Chat mode (full responses)\n");
+    printf("  generate <model_prefix> <input> [--temp T] [--max-tokens N]  Generate single response\n");
     printf("  interactive                              Alias of 'run' (deprecated)\n");
 }
 
@@ -298,6 +300,112 @@ int main(int argc, char* argv[]) {
         loadModel(model, modelPrefix);
         evaluateCorpus(model, evalFile, topK);
         freeLMModel(model);
+    } else if (strcmp(command, "chat") == 0) {
+        const char* modelPrefix = DefaultModelPrefix;
+        float temperature = 0.7f;
+        int maxTokens = 20;
+        
+        // Parse optional flags
+        for (int i = 2; i < argc; i++) {
+            if (strcmp(argv[i], "--model-prefix") == 0 && (i + 1) < argc) {
+                modelPrefix = argv[i + 1];
+                i++;
+            } else if (strcmp(argv[i], "--temp") == 0 && (i + 1) < argc) {
+                temperature = atof(argv[i + 1]);
+                i++;
+            } else if (strcmp(argv[i], "--max-tokens") == 0 && (i + 1) < argc) {
+                maxTokens = atoi(argv[i + 1]);
+                i++;
+            }
+        }
+        
+        // Load model
+        LMModel* model = createLMModel(4);
+        if (!model) {
+            printf("Error: Failed to create model\n");
+            return 1;
+        }
+        loadModel(model, modelPrefix);
+        
+        // Chat mode
+        printf("Cevia Chat Mode (type 'exit' to quit)\n");
+        printf("Temperature: %.2f, Max tokens: %d\n\n", temperature, maxTokens);
+        
+        char input[1024];
+        while (1) {
+            printf("You: ");
+            if (!fgets(input, sizeof(input), stdin)) break;
+            
+            // Remove newline
+            size_t len = strlen(input);
+            if (len > 0 && input[len-1] == '\n') {
+                input[len-1] = '\0';
+            }
+            
+            // Check for exit
+            if (strcmp(input, "exit") == 0) break;
+            if (strlen(input) == 0) continue;
+            
+            // Generate response
+            char response[2048];
+            generateResponse(model, input, response, maxTokens, temperature);
+            
+            printf("Cevia: %s\n\n", response);
+        }
+        
+        freeLMModel(model);
+        
+    } else if (strcmp(command, "generate") == 0) {
+        if (argc < 4) {
+            printf("Error: Missing arguments for generate command\n");
+            printUsage(argv[0]);
+            return 1;
+        }
+        
+        const char* modelPrefix = argv[2];
+        char inputBuf[1024] = {0};
+        float temperature = 0.7f;
+        int maxTokens = 20;
+        
+        // Concatenate input until option flag
+        {
+            int started = 0;
+            for (int i = 3; i < argc; i++) {
+                if (strncmp(argv[i], "--", 2) == 0) break;
+                if (started) strncat(inputBuf, " ", sizeof(inputBuf) - strlen(inputBuf) - 1);
+                strncat(inputBuf, argv[i], sizeof(inputBuf) - strlen(inputBuf) - 1);
+                started = 1;
+            }
+        }
+        
+        // Parse optional flags
+        for (int i = 3; i < argc; i++) {
+            if (strcmp(argv[i], "--temp") == 0 && (i + 1) < argc) {
+                temperature = atof(argv[i + 1]);
+                i++;
+            } else if (strcmp(argv[i], "--max-tokens") == 0 && (i + 1) < argc) {
+                maxTokens = atoi(argv[i + 1]);
+                i++;
+            }
+        }
+        
+        // Load model
+        LMModel* model = createLMModel(4);
+        if (!model) {
+            printf("Error: Failed to create model\n");
+            return 1;
+        }
+        loadModel(model, modelPrefix);
+        
+        // Generate response
+        char response[2048];
+        generateResponse(model, inputBuf, response, maxTokens, temperature);
+        
+        printf("Input: %s\n", inputBuf);
+        printf("Response: %s\n", response);
+        
+        freeLMModel(model);
+        
     } else {
         printf("Error: Unknown command '%s'\n", command);
         printUsage(argv[0]);
@@ -306,3 +414,4 @@ int main(int argc, char* argv[]) {
     
     return 0;
 }
+
