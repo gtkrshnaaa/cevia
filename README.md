@@ -1,74 +1,113 @@
-# **Cevia: Stateless Backward Reasoning Language Model (C Implementation)**
+# **Cevia: Indonesian Language Model (Stateless Backward Reasoning)**
 
 ## **1. Overview**
 
-This documentation describes a **stateless, pattern-based language model implemented in C**. It is designed to process large curated text datasets to generate predictions for the next token in a sequence using **backward reasoning**. The model is:
+**Cevia** adalah implementasi **Stateless Backward Reasoning Language Model** dalam bahasa C yang dirancang khusus untuk **percakapan bahasa Indonesia**. Model ini:
 
-* **Stateless:** Each inference is independent; no hidden state is stored between calls.
-* **Dataset-driven:** All knowledge is built from external text files.
-* **Compiler-friendly:** Optimized for readability and high-performance C execution.
+* **Stateless:** Setiap inferensi bersifat independen tanpa menyimpan state tersembunyi
+* **Dataset-driven:** Pengetahuan dibangun dari corpus percakapan Indonesia
+* **Compiler-friendly:** Dioptimalkan untuk performa tinggi dengan single-file compilation
+* **Conversational:** Fokus pada percakapan sehari-hari dalam bahasa Indonesia
 
-The model supports:
+Model mendukung:
 
-* Tokenization from large text files.
-* N-gram and pattern-based statistics.
-* Candidate scoring using backward reasoning.
-* Top-k token predictions.
+* Tokenisasi teks bahasa Indonesia
+* N-gram statistics (unigram, bigram, trigram)
+* Pattern-based predictions
+* Top-k token predictions untuk percakapan
 
 ---
 
 ## **2. Installation**
 
-1. Clone the repository:
+1. Clone repository:
 
 ```bash
 git clone https://github.com/gtkrshnaaa/cevia.git
 cd cevia
 ```
 
-2. Compile with GCC (example):
+2. Compile (single-file build):
 
 ```bash
 make
 ```
 
-This will produce the executable for building the vocabulary, updating n-grams, and performing inference.
+Ini akan menghasilkan executable `bin/cevia` yang siap digunakan.
 
-3. Prepare dataset: Place `.txt` files with curated text in the `data/` folder.
+3. Train model dengan corpus Indonesia:
+
+```bash
+make train
+```
+
+Model akan disimpan di `data/bin/cevia_id.*`
+
 
 ---
 
 ## **3. Usage**
 
-### Build Vocabulary
+### Mode Interaktif (Recommended)
 
 ```bash
-./build_vocab data/corpus.txt vocab.bin
+make run
+# atau
+./bin/cevia run --model-prefix data/bin/cevia_id --top-k 5
 ```
 
-* Reads all text lines from `corpus.txt`.
-* Tokenizes each line.
-* Maps tokens to IDs and stores vocabulary in `vocab.bin`.
+Contoh percakapan:
+```
+Interactive mode. Type 'exit' to quit.
 
-### Build N-grams and Patterns
+Enter context: Halo apa
+Predictions:
+  kabar (25.00%)
+  apa (20.00%)
+  kamu (18.00%)
+  ...
+
+Enter context: Sudah makan
+Predictions:
+  belum (22.00%)
+  apa (20.00%)
+  nasi (18.00%)
+  ...
+
+Enter context: exit
+```
+
+### Prediksi Single Command
 
 ```bash
-./build_ngrams vocab.bin data/corpus.txt ngram.bin pattern.bin
+./bin/cevia predict data/bin/cevia_id "Halo apa" --top-k 5
 ```
 
-* Uses the vocabulary to convert tokens to IDs.
-* Updates n-gram counts (up to MaxN).
-* Extracts patterns and stores them in `pattern.bin`.
+Output:
+```
+Context: apa
+Predictions:
+  kabar (25.00%)
+  apa (20.00%)
+  kamu (18.00%)
+  ...
+```
 
-### Predict Next Token
+### Evaluasi Model
 
 ```bash
-./predict vocab.bin ngram.bin pattern.bin "prefix tokens here"
+make eval
+# atau
+./bin/cevia eval data/corpus_id.txt --model-prefix data/bin/cevia_id --top-k 5
 ```
 
-* Loads model from disk.
-* Tokenizes the input prefix.
-* Performs **backward reasoning** to predict the next token.
+Output:
+```
+Eval results on data/corpus_id.txt
+  Pairs evaluated: 1363
+  Top-5 hits: 1038
+  Hit rate: 76.16%
+```
 
 ---
 
