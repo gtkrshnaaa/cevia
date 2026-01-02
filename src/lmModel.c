@@ -102,130 +102,211 @@ void trainFromFile(LMModel* model, const char* filename) {
     fclose(file);
 }
 
-// Save model as C source files for embedding
+// Save model to binary files
 void saveModel(const LMModel* model, const char* basePath) {
     if (!model || !basePath) return;
     
-    // Save vocabulary (already generates C file)
     char filename[1024];
+    
+    // Save vocabulary
     snprintf(filename, sizeof(filename), "%s.vocab", basePath);
     saveVocabulary(model->vocab, filename);
     
-    // Generate embedded_ngrams.c with all n-grams
-    FILE* f = fopen("src/embedded_ngrams.c", "w");
-    if (!f) {
-        perror("Failed to create embedded ngrams file");
-        return;
-    }
-    
-    fprintf(f, "// Auto-generated embedded n-grams\n");
-    fprintf(f, "#include <stdint.h>\n\n");
-    
-    // Save total tokens
-    fprintf(f, "const uint64_t EMBEDDED_TOTAL_TOKENS = %luULL;\n\n", model->totalTokens);
-    
-    // Count and save unigrams
-    uint32_t unigramCount = 0;
-    {
+    // Save unigrams and totalTokens
+    snprintf(filename, sizeof(filename), "%s.uni", basePath);
+    FILE* f = fopen(filename, "wb");
+    if (f) {
+        fwrite(&model->totalTokens, sizeof(uint64_t), 1, f);
+        
+        uint32_t unigramCount = 0;
+        {
+            NgramIterator* it = ngramIterator(model->ngrams);
+            uint32_t token, count;
+            while (nextNgram(it, &token, 1, &count)) unigramCount++;
+            freeNgramIterator(it);
+        }
+        fwrite(&unigramCount, sizeof(uint32_t), 1, f);
+        
         NgramIterator* it = ngramIterator(model->ngrams);
         uint32_t token, count;
         while (nextNgram(it, &token, 1, &count)) {
-            unigramCount++;
+            fwrite(&token, sizeof(uint32_t), 1, f);
+            fwrite(&count, sizeof(uint32_t), 1, f);
         }
         freeNgramIterator(it);
+        fclose(f);
     }
     
-    fprintf(f, "const uint32_t EMBEDDED_UNI_SIZE = %u;\n", unigramCount);
-    fprintf(f, "const uint32_t EMBEDDED_UNI[][2] = {\n");
-    {
-        NgramIterator* it = ngramIterator(model->ngrams);
-        uint32_t token, count;
-        while (nextNgram(it, &token, 1, &count)) {
-            fprintf(f, "    {%u, %u},\n", token, count);
-        }
-        freeNgramIterator(it);
-    }
-    fprintf(f, "};\n\n");
-    
-    // Count and save bigrams
-    uint32_t bigramCount = 0;
-    if (model->ngrams && model->ngrams->root) {
+    // Save bigrams
+    snprintf(filename, sizeof(filename), "%s.bi", basePath);
+    FILE* f2 = fopen(filename, "wb");
+    if (f2 && model->ngrams && model->ngrams->root) {
+        uint32_t bigramCount = 0;
         NgramNode* first = model->ngrams->root->children;
         while (first) {
             NgramNode* second = first->children;
+            while (second) { bigramCount++; second = second->next; }
+            first = first->next;
+        }
+        fwrite(&bigramCount, sizeof(uint32_t), 1, f2);
+        
+        first = model->ngrams->root->children;
+        while (first) {
+            NgramNode* second = first->children;
             while (second) {
-                bigramCount++;
+                fwrite(&first->tokenId, sizeof(uint32_t), 1, f2);
+                fwrite(&second->tokenId, sizeof(uint32_t), 1, f2);
+                fwrite(&second->count, sizeof(uint32_t), 1, f2);
                 second = second->next;
             }
             first = first->next;
         }
+        fclose(f2);
     }
     
-    fprintf(f, "const uint32_t EMBEDDED_BI_SIZE = %u;\n", bigramCount);
-    fprintf(f, "const uint32_t EMBEDDED_BI[][3] = {\n");
-    if (model->ngrams && model->ngrams->root) {
-        NgramNode* first = model->ngrams->root->children;
-        while (first) {
-            NgramNode* second = first->children;
-            while (second) {
-                fprintf(f, "    {%u, %u, %u},\n", 
-                       first->tokenId, second->tokenId, second->count);
-                second = second->next;
-            }
-            first = first->next;
-        }
-    }
-    fprintf(f, "};\n\n");
-    
-    // Count and save trigrams
-    uint32_t trigramCount = 0;
-    if (model->ngrams && model->ngrams->root) {
+    // Save trigrams
+    snprintf(filename, sizeof(filename), "%s.tri", basePath);
+    FILE* f3 = fopen(filename, "wb");
+    if (f3 && model->ngrams && model->ngrams->root) {
+        uint32_t trigramCount = 0;
         NgramNode* first = model->ngrams->root->children;
         while (first) {
             NgramNode* second = first->children;
             while (second) {
                 NgramNode* third = second->children;
+                while (third) { trigramCount++; third = third->next; }
+                second = second->next;
+            }
+            first = first->next;
+        }
+        fwrite(&trigramCount, sizeof(uint32_t), 1, f3);
+        
+        first = model->ngrams->root->children;
+        while (first) {
+            NgramNode* second = first->children;
+            while (second) {
+                NgramNode* third = second->children;
                 while (third) {
-                    trigramCount++;
+                    fwrite(&first->tokenId, sizeof(uint32_t), 1, f3);
+                    fwrite(&second->tokenId, sizeof(uint32_t), 1, f3);
+                    fwrite(&third->tokenId, sizeof(uint32_t), 1, f3);
+                    fwrite(&third->count, sizeof(uint32_t), 1, f3);
                     third = third->next;
                 }
                 second = second->next;
             }
             first = first->next;
         }
+        fclose(f3);
     }
-    
-    fprintf(f, "const uint32_t EMBEDDED_TRI_SIZE = %u;\n", trigramCount);
-    fprintf(f, "const uint32_t EMBEDDED_TRI[][4] = {\n");
-    if (model->ngrams && model->ngrams->root) {
-        NgramNode* first = model->ngrams->root->children;
-        while (first) {
-            NgramNode* second = first->children;
-            while (second) {
-                NgramNode* third = second->children;
-                while (third) {
-                    fprintf(f, "    {%u, %u, %u, %u},\n",
-                           first->tokenId, second->tokenId, 
-                           third->tokenId, third->count);
-                    third = third->next;
-                }
-                second = second->next;
-            }
-            first = first->next;
-        }
-    }
-    fprintf(f, "};\n");
-    
-    fclose(f);
-    printf("Generated embedded n-grams: src/embedded_ngrams.c\n");
-    printf("  Unigrams: %u\n", unigramCount);
-    printf("  Bigrams: %u\n", bigramCount);
-    printf("  Trigrams: %u\n", trigramCount);
 }
+
+#ifdef EMBEDDED_MODEL
+// Declare embedded binary data symbols (created by objcopy)
+extern const unsigned char _binary_data_bin_cevia_id_vocab_start[];
+extern const unsigned char _binary_data_bin_cevia_id_vocab_end[];
+extern const unsigned char _binary_data_bin_cevia_id_uni_start[];
+extern const unsigned char _binary_data_bin_cevia_id_uni_end[];
+extern const unsigned char _binary_data_bin_cevia_id_bi_start[];
+extern const unsigned char _binary_data_bin_cevia_id_bi_end[];
+extern const unsigned char _binary_data_bin_cevia_id_tri_start[];
+extern const unsigned char _binary_data_bin_cevia_id_tri_end[];
+
+// Load vocabulary from embedded data
+static void loadEmbeddedVocab(LMModel* model) {
+    const unsigned char* data = _binary_data_bin_cevia_id_vocab_start;
+    
+    // Read vocab size
+    uint32_t size = *(uint32_t*)data;
+    data += 4;
+    
+    // Read each token
+    for (uint32_t i = 0; i < size; i++) {
+        uint16_t len = *(uint16_t*)data;
+        data += 2;
+        
+        char token[256];
+        memcpy(token, data, len);
+        token[len] = '\0';
+        data += len;
+        
+        getOrAddToken(model->vocab, token);
+    }
+}
+
+// Load n-grams from embedded data
+static void loadEmbeddedNgrams(LMModel* model) {
+    // Load unigrams
+    const unsigned char* data = _binary_data_bin_cevia_id_uni_start;
+    
+    // Read totalTokens
+    model->totalTokens = *(uint64_t*)data;
+    data += 8;
+    
+    // Read unigram count
+    uint32_t uniCount = *(uint32_t*)data;
+    data += 4;
+    
+    // Read unigrams
+    for (uint32_t i = 0; i < uniCount; i++) {
+        uint32_t token = *(uint32_t*)data;
+        data += 4;
+        uint32_t count = *(uint32_t*)data;
+        data += 4;
+        
+        addNgramWithCount(model->ngrams, &token, 1, count);
+    }
+    
+    // Load bigrams
+    data = _binary_data_bin_cevia_id_bi_start;
+    uint32_t biCount = *(uint32_t*)data;
+    data += 4;
+    
+    for (uint32_t i = 0; i < biCount; i++) {
+        uint32_t tokens[2];
+        tokens[0] = *(uint32_t*)data; data += 4;
+        tokens[1] = *(uint32_t*)data; data += 4;
+        uint32_t count = *(uint32_t*)data; data += 4;
+        
+        addNgramWithCount(model->ngrams, tokens, 2, count);
+    }
+    
+    // Load trigrams
+    data = _binary_data_bin_cevia_id_tri_start;
+    uint32_t triCount = *(uint32_t*)data;
+    data += 4;
+    
+    for (uint32_t i = 0; i < triCount; i++) {
+        uint32_t tokens[3];
+        tokens[0] = *(uint32_t*)data; data += 4;
+        tokens[1] = *(uint32_t*)data; data += 4;
+        tokens[2] = *(uint32_t*)data; data += 4;
+        uint32_t count = *(uint32_t*)data; data += 4;
+        
+        addNgramWithCount(model->ngrams, tokens, 3, count);
+    }
+}
+
+// Load model from embedded data
+void loadEmbeddedModel(LMModel* model) {
+    if (!model) return;
+    
+    printf("Loading model from embedded data...\n");
+    loadEmbeddedVocab(model);
+    loadEmbeddedNgrams(model);
+    printf("✓ Loaded embedded model (vocab: %u tokens)\n", model->vocab->size);
+}
+#endif
 
 // Load model from files
 void loadModel(LMModel* model, const char* basePath) {
     if (!model || !basePath) return;
+    
+#ifdef EMBEDDED_MODEL
+    // Use embedded data instead of files
+    loadEmbeddedModel(model);
+    return;
+#else
     
     char filename[1024];
     
@@ -292,6 +373,7 @@ void loadModel(LMModel* model, const char* basePath) {
         }
         fclose(f3);
     }
+#endif  // EMBEDDED_MODEL
 }
 
 // Predict the next token given a context
