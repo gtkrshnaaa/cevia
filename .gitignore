@@ -1,2 +1,16 @@
-bin
-build
+# Build artifacts
+build/
+
+# Model data files (keep source data)
+data/bin/*.o
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

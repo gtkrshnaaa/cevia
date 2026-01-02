@@ -2,18 +2,23 @@ CC = gcc
 CFLAGS = -Wall -Wextra -O3 -Iinclude/
 LDFLAGS = -lm
 
-# Directories
-SRC_CORE = src/core
-SRC_CLI = src/cli
-BIN_DIR = bin
-LIB_DIR = lib
+# Build directory structure
+BUILD_DIR = build
+OBJ_DIR = $(BUILD_DIR)/obj
+LIB_DIR = $(BUILD_DIR)/lib
+BIN_DIR = $(BUILD_DIR)/bin
+EMBED_DIR = $(BUILD_DIR)/embed
 
 # Model and data
 MODEL_PREFIX ?= data/bin/cevia_id
 CORPUS ?= data/corpus_id.txt
 
-# Create directories
-$(shell mkdir -p $(BIN_DIR) $(LIB_DIR) data/bin)
+# Create all build directories
+$(shell mkdir -p $(OBJ_DIR) $(LIB_DIR) $(BIN_DIR) $(EMBED_DIR) data/bin)
+
+# Source directories
+SRC_CORE = src/core
+SRC_CLI = src/cli
 
 # Library source files
 LIB_SRCS = $(SRC_CORE)/common.c \
@@ -26,14 +31,14 @@ LIB_SRCS = $(SRC_CORE)/common.c \
 # CLI source files
 CLI_SRCS = $(SRC_CLI)/main.c
 
-# Object files for library
-LIB_OBJS = $(LIB_SRCS:.c=.o)
+# Object files (in build/obj/)
+LIB_OBJS = $(patsubst $(SRC_CORE)/%.c,$(OBJ_DIR)/%.o,$(LIB_SRCS))
 
-# Embedded model data
-VOCAB_OBJ = $(MODEL_PREFIX).vocab.o
-UNI_OBJ = $(MODEL_PREFIX).uni.o
-BI_OBJ = $(MODEL_PREFIX).bi.o
-TRI_OBJ = $(MODEL_PREFIX).tri.o
+# Embedded model data (in build/embed/)
+VOCAB_OBJ = $(EMBED_DIR)/cevia_id.vocab.o
+UNI_OBJ = $(EMBED_DIR)/cevia_id.uni.o
+BI_OBJ = $(EMBED_DIR)/cevia_id.bi.o
+TRI_OBJ = $(EMBED_DIR)/cevia_id.tri.o
 EMBEDDED_OBJS = $(VOCAB_OBJ) $(UNI_OBJ) $(BI_OBJ) $(TRI_OBJ)
 
 # Targets
@@ -61,8 +66,10 @@ $(SHARED_LIB): $(LIB_SRCS)
 	@echo "✓ Built: $@"
 
 # Compile library object files
-$(SRC_CORE)/%.o: $(SRC_CORE)/%.c
-	$(CC) $(CFLAGS) -c $< -o $@
+$(OBJ_DIR)/%.o: $(SRC_CORE)/%.c
+	@mkdir -p $(OBJ_DIR)
+	@echo "Compiling $<..."
+	@$(CC) $(CFLAGS) -c $< -o $@
 
 # Build CLI app (development - uses static library)
 $(CLI_TARGET): $(CLI_SRCS) $(STATIC_LIB)
@@ -86,21 +93,22 @@ release: train $(EMBEDDED_OBJS) $(STATIC_LIB)
 	@ls -lh $(CLI_TARGET) | awk '{print "  " $$5 " - " $$9}'
 	@echo "✓ No external files needed!"
 
-# Convert binary files to object files using objcopy
-%.o: %
+# Convert binary model files to object files using objcopy
+$(EMBED_DIR)/cevia_id.%.o: data/bin/cevia_id.%
 	@echo "Embedding $<..."
+	@mkdir -p $(EMBED_DIR)
 	@objcopy -I binary -O elf64-x86-64 -B i386:x86-64 \
 	         --rename-section .data=.rodata,alloc,load,readonly,data,contents \
 	         $< $@
 
-# Clean build artifacts
+# Clean all build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
-	rm -f $(BIN_DIR)/*
-	rm -f $(LIB_DIR)/*
-	rm -f $(SRC_CORE)/*.o
-	rm -f data/bin/*.o
+	rm -rf $(BUILD_DIR)
 	@echo "✓ Clean complete"
+
+# Clean and rebuild everything
+rebuild: clean all
 
 # Run interactive mode
 run: $(CLI_TARGET)
@@ -128,6 +136,13 @@ help:
 	@echo "  train    - Train the model"
 	@echo "  eval     - Evaluate the model"
 	@echo "  run      - Run interactive mode"
-	@echo "  clean    - Remove build artifacts"
+	@echo "  clean    - Remove all build artifacts"
+	@echo "  rebuild  - Clean and rebuild everything"
 	@echo "  help     - Show this help"
+	@echo ""
+	@echo "Build Structure:"
+	@echo "  build/obj/    - Object files (.o)"
+	@echo "  build/lib/    - Libraries (.a, .so)"
+	@echo "  build/bin/    - Executables"
+	@echo "  build/embed/  - Embedded model data (.o)"
 
